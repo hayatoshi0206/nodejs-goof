@@ -70,13 +70,24 @@ exports.admin = function (req, res, next) {
 exports.get_account_details = function(req, res, next) {
   // @TODO need to add a database call to get the profile from the database
   // and provide it to the view to display
-  const profile = { layout: false }
- 	return res.render('account.hbs', profile)
+ 	return res.render('account.hbs', {})
 }
 
 exports.save_account_details = function(req, res, next) {
   // get the profile details from the JSON
-	const profile = req.body
+	const submitted = req.body || {}
+  // Only the known profile fields reach the template: rendering the request
+  // body as-is lets a "layout" field make hbs include an arbitrary file.
+  const field = function (value) {
+    return typeof value === 'string' ? value : ''
+  }
+  const profile = {
+    firstname: field(submitted.firstname),
+    lastname: field(submitted.lastname),
+    country: field(submitted.country),
+    phone: field(submitted.phone),
+    email: field(submitted.email)
+  }
   // validate the input
   if (validator.isEmail(profile.email, { allow_display_name: true })
     // allow_display_name allows us to receive input as:
@@ -92,11 +103,11 @@ exports.save_account_details = function(req, res, next) {
     profile.lastname = validator.rtrim(profile.lastname)
 
     // render the view
-    return res.render('account.hbs', Object.assign({}, profile, { layout: false }))
+    return res.render('account.hbs', profile)
   } else {
     // if input validation fails, we just render the view as is
     console.log('error in form details')
-    return res.render('account.hbs', { layout: false })
+    return res.render('account.hbs', {})
   }
 }
 
@@ -148,7 +159,11 @@ exports.create = function (req, res, next) {
     var url = item.match(imgRegex)[1];
     console.log('found img: ' + url);
 
-    if (!validator.isURL(url, { protocols: ['http', 'https'], require_protocol: true })) {
+    if (!validator.isURL(url, {
+      protocols: ['http', 'https'],
+      require_protocol: true,
+      require_tld: false
+    })) {
       return res.status(400).send('Invalid image URL');
     }
 

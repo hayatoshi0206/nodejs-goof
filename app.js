@@ -38,7 +38,6 @@ cons.dust.helpers = dustHelpers;
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 app.set('layout', 'layout');
-app.use(expressLayouts);
 app.use(logger('dev'));
 app.use(methodOverride());
 app.use(session({
@@ -54,16 +53,19 @@ app.use(fileUpload());
 
 // Routes
 app.use(routes.current_user);
-app.get('/', routes.index);
-app.get('/login', routes.login);
+// express-ejs-layouts is mounted per EJS route only: it shares the `layout`
+// render option with hbs, so mounting it globally would force the hbs views to
+// opt out of their own layout.
+app.get('/', expressLayouts, routes.index);
+app.get('/login', expressLayouts, routes.login);
 app.post('/login', routes.loginHandler);
-app.get('/admin', routes.isLoggedIn, routes.admin);
+app.get('/admin', routes.isLoggedIn, expressLayouts, routes.admin);
 app.get('/account_details', routes.isLoggedIn, routes.get_account_details);
 app.post('/account_details', routes.isLoggedIn, routes.save_account_details);
 app.get('/logout', routes.logout);
 app.post('/create', routes.create);
 app.get('/destroy/:id', routes.destroy);
-app.get('/edit/:id', routes.edit);
+app.get('/edit/:id', expressLayouts, routes.edit);
 app.post('/update/:id', routes.update);
 app.post('/import', routes.import);
 app.get('/about_new', routes.about_new);
@@ -78,7 +80,13 @@ app.use(st({ path: './public', url: '/public' }));
 // Render markdown, then strip anything script-ish from the resulting HTML
 // (marked itself no longer sanitizes).
 app.locals.marked = function (input) {
-  return sanitizeHtml(marked.parse(String(input)));
+  return sanitizeHtml(marked.parse(String(input)), {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+    allowedAttributes: Object.assign({}, sanitizeHtml.defaults.allowedAttributes, {
+      img: ['src', 'alt', 'title']
+    }),
+    allowedSchemes: ['http', 'https']
+  });
 };
 
 // development only
