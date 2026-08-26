@@ -5,52 +5,42 @@ var User = mongoose.model('User');
 // TODO:
 var hms = require('humanize-ms');
 var ms = require('ms');
-var streamBuffers = require('stream-buffers');
-var readline = require('readline');
 var moment = require('moment');
-var exec = require('child_process').exec;
+var execFile = require('child_process').execFile;
 var validator = require('validator');
 
-// zip-slip
 var fileType = require('file-type');
 var AdmZip = require('adm-zip');
 var fs = require('fs');
-
-// prototype-pollution
-var _ = require('lodash');
+var path = require('path');
 
 exports.index = function (req, res, next) {
-  Todo.
-    find({}).
-    sort('-updated_at').
-    exec(function (err, todos) {
-      if (err) return next(err);
-
-      res.render('index', {
-        title: 'Patch TODO List',
-        subhead: 'Vulnerabilities at their best',
-        todos: todos,
-      });
+  Todo.find({}).sort('-updated_at').then(function (todos) {
+    res.render('index', {
+      title: 'Patch TODO List',
+      subhead: 'Vulnerabilities at their best',
+      todos: todos,
     });
+  }, next);
 };
 
 exports.loginHandler = function (req, res, next) {
-  if (validator.isEmail(req.body.username)) {
-    User.find({ username: req.body.username, password: req.body.password }, function (err, users) {
-      if (err) return next(err);
+  const username = req.body.username
+  const password = req.body.password
 
-      if (users && users.length > 0) {
-        const redirectPage = req.body.redirectPage
-        const session = req.session
-        const username = req.body.username
-        return adminLoginSuccess(redirectPage, session, username, res)
-      } else {
-        return res.status(401).send()
-      }
-    });
-  } else {
+  // Both fields must be plain strings: passing an object here would otherwise
+  // reach the query as a Mongo operator (e.g. {"$gt": ""}).
+  if (typeof username !== 'string' || typeof password !== 'string' || !validator.isEmail(username)) {
     return res.status(401).send()
   }
+
+  User.findOne({ username: username }).then(function (user) {
+    if (!user || !utils.verifyPassword(password, user.password)) {
+      return res.status(401).send()
+    }
+
+    return adminLoginSuccess(req.body.redirectPage, req.session, username, res)
+  }, next);
 };
 
 function adminLoginSuccess(redirectPage, session, username, res) {
@@ -59,18 +49,14 @@ function adminLoginSuccess(redirectPage, session, username, res) {
   // Log the login action for audit
   console.log(`User logged in: ${username}`)
 
-  if (redirectPage) {
-      return res.redirect(redirectPage)
-  } else {
-      return res.redirect('/admin')
-  }
+  return res.redirect(utils.safeRedirectPath(redirectPage, '/admin'))
 }
 
 exports.login = function (req, res, next) {
   return res.render('admin', {
     title: 'Admin Access',
     granted: false,
-    redirectPage: req.query.redirectPage
+    redirectPage: utils.safeRedirectPath(req.query.redirectPage, '')
   });
 };
 
@@ -84,7 +70,7 @@ exports.admin = function (req, res, next) {
 exports.get_account_details = function(req, res, next) {
   // @TODO need to add a database call to get the profile from the database
   // and provide it to the view to display
-  const profile = {}
+  const profile = { layout: false }
  	return res.render('account.hbs', profile)
 }
 
@@ -106,11 +92,11 @@ exports.save_account_details = function(req, res, next) {
     profile.lastname = validator.rtrim(profile.lastname)
 
     // render the view
-    return res.render('account.hbs', profile)
+    return res.render('account.hbs', Object.assign({}, profile, { layout: false }))
   } else {
     // if input validation fails, we just render the view as is
     console.log('error in form details')
-    return res.render('account.hbs')
+    return res.render('account.hbs', { layout: false })
   }
 }
 
@@ -162,7 +148,13 @@ exports.create = function (req, res, next) {
     var url = item.match(imgRegex)[1];
     console.log('found img: ' + url);
 
-    exec('identify ' + url, function (err, stdout, stderr) {
+    if (!validator.isURL(url, { protocols: ['http', 'https'], require_protocol: true })) {
+      return res.status(400).send('Invalid image URL');
+    }
+
+    // execFile with an argument array: the URL is passed as a single argv entry
+    // and never interpreted by a shell.
+    execFile('identify', [url], function (err, stdout, stderr) {
       if (err) {
         console.error('Error running identify on ' + url + ': ' + err.message + ' ' + stderr);
       }
@@ -175,64 +167,43 @@ exports.create = function (req, res, next) {
   new Todo({
     content: item,
     updated_at: Date.now(),
-  }).save(function (err, todo, count) {
-    if (err) return next(err);
-
-    /*
-    res.setHeader('Data', todo.content.toString('base64'));
-    res.redirect('/');
-    */
-
+  }).save().then(function (todo) {
     res.setHeader('Location', '/');
     res.status(302).send(todo.content.toString('base64'));
-
-    // res.redirect('/#' + todo.content.toString('base64'));
-  });
+  }, next);
 };
 
 exports.destroy = function (req, res, next) {
-  Todo.findById(req.params.id, function (err, todo) {
-    if (err) return next(err);
-
+  Todo.findById(req.params.id).then(function (todo) {
     if (!todo) return res.status(404).send('Todo not found');
 
-    todo.remove(function (err) {
-      if (err) return next(err);
-
+    return todo.deleteOne().then(function () {
       res.redirect('/');
     });
-  });
+  }, next).catch(next);
 };
 
 exports.edit = function (req, res, next) {
-  Todo.
-    find({}).
-    sort('-updated_at').
-    exec(function (err, todos) {
-      if (err) return next(err);
-
-      res.render('edit', {
-        title: 'TODO',
-        todos: todos,
-        current: req.params.id
-      });
+  Todo.find({}).sort('-updated_at').then(function (todos) {
+    res.render('edit', {
+      title: 'TODO',
+      todos: todos,
+      current: req.params.id
     });
+  }, next);
 };
 
 exports.update = function (req, res, next) {
-  Todo.findById(req.params.id, function (err, todo) {
-    if (err) return next(err);
-
+  Todo.findById(req.params.id).then(function (todo) {
     if (!todo) return res.status(404).send('Todo not found');
 
     todo.content = req.body.content;
     todo.updated_at = Date.now();
-    todo.save(function (err, todo, count) {
-      if (err) return next(err);
 
+    return todo.save().then(function () {
       res.redirect('/');
     });
-  });
+  }, next).catch(next);
 };
 
 // ** express turns the cookie key to lowercase **
@@ -260,15 +231,26 @@ exports.import = function (req, res, next) {
     return importTodos(importFile.data.toString('ascii'), res, next);
   }
 
+  var extracted_path = "/tmp/extracted_files";
   try {
-    var zip = AdmZip(importFile.data);
-    var extracted_path = "/tmp/extracted_files";
+    var zip = new AdmZip(importFile.data);
+
+    // zip-slip: reject archives whose entries resolve outside the extraction
+    // directory ("../../etc/cron.d/x", absolute paths, ...) before writing.
+    var unsafeEntry = zip.getEntries().find(function (entry) {
+      var target = path.resolve(extracted_path, entry.entryName);
+      return target !== extracted_path && !target.startsWith(extracted_path + path.sep);
+    });
+    if (unsafeEntry) {
+      return res.status(400).send('Archive contains an illegal entry path: ' + unsafeEntry.entryName);
+    }
+
     zip.extractAllTo(extracted_path, true);
   } catch (e) {
     return next(e);
   }
 
-  fs.readFile('backup.txt', 'ascii', function (err, data) {
+  fs.readFile(path.join(extracted_path, 'backup.txt'), 'ascii', function (err, data) {
     if (err) {
       if (err.code !== 'ENOENT') return next(err);
 
@@ -307,30 +289,21 @@ function importTodos(data, res, next) {
 
   if (items.length === 0) return res.redirect('/');
 
-  var pending = items.length;
-  var failed = false;
-  items.forEach(function (item) {
-    new Todo({
+  Promise.all(items.map(function (item) {
+    return new Todo({
       content: item,
       updated_at: Date.now(),
-    }).save(function (err, todo) {
-      if (failed) return;
-
-      if (err) {
-        failed = true;
-        return next(err);
-      }
-      console.log('added ' + todo);
-      pending -= 1;
-      if (pending === 0) res.redirect('/');
-    });
-  });
+    }).save();
+  })).then(function () {
+    res.redirect('/');
+  }, next);
 }
 
 exports.about_new = function (req, res, next) {
   console.log(JSON.stringify(req.query));
   return res.render("about_new.dust",
     {
+      layout: false,
       title: 'Patch TODO List',
       subhead: 'Vulnerabilities at their best',
       device: req.query.device
@@ -371,16 +344,15 @@ exports.chat = {
       return;
     }
 
+    const submitted = req.body.message || {};
     const message = {
       // Default message icon. Cen be overwritten by user.
-      icon: '👋',
-    };
-
-    _.merge(message, req.body.message, {
+      icon: typeof submitted.icon === 'string' ? submitted.icon : '👋',
+      text: typeof submitted.text === 'string' ? submitted.text : '',
       id: lastId++,
       timestamp: Date.now(),
       userName: user.name,
-    });
+    };
 
     messages.push(message);
     res.send({ ok: true });

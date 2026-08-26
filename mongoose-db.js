@@ -1,5 +1,7 @@
 var mongoose = require('mongoose');
 var cfenv = require("cfenv");
+var crypto = require('crypto');
+var utils = require('./utils');
 var Schema = mongoose.Schema;
 
 var Todo = new Schema({
@@ -42,30 +44,27 @@ if (mongoCFUri) {
 
 console.log("Using Mongo URI " + mongoUri);
 
-mongoose.connect(mongoUri, function (err) {
-  if (err) {
-    console.error('Failed to connect to MongoDB at ' + mongoUri, err);
-  }
-});
-
 mongoose.connection.on('error', function (err) {
   console.error('MongoDB connection error:', err);
 });
 
 User = mongoose.model('User');
-User.find({ username: 'admin@snyk.io' }).exec(function (err, users) {
-  if (err) {
-    console.error('Failed to look up the admin user:', err);
-    return;
-  }
 
-  console.log(users);
-  if (users.length === 0) {
+mongoose.connect(mongoUri)
+  .then(function () {
+    return User.findOne({ username: 'admin@snyk.io' });
+  })
+  .then(function (admin) {
+    if (admin) return;
+
     console.log('no admin');
-    new User({ username: 'admin@snyk.io', password: 'SuperSecretPassword' }).save(function (err) {
-      if (err) {
-        console.error('error saving admin user:', err);
-      }
-    });
-  }
-});
+    var adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(18).toString('base64url');
+    if (!process.env.ADMIN_PASSWORD) {
+      console.log('ADMIN_PASSWORD is not set, generated admin password: ' + adminPassword);
+    }
+
+    return new User({ username: 'admin@snyk.io', password: utils.hashPassword(adminPassword) }).save();
+  })
+  .catch(function (err) {
+    console.error('Failed to connect to MongoDB at ' + mongoUri + ' or seed the admin user:', err);
+  });
