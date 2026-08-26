@@ -15,10 +15,6 @@ router.get('/', async (req, res, next) => {
   // (just imagine that we implemented auth, etc)
   const results = await repo.find({ id: 1 })
 
-  // Log Object's where property for debug reasons:
-  console.log('The Object.where property is set to: ', {}.where)
-  console.log(results)
-
   return res.json(results)
 
 })
@@ -29,9 +25,10 @@ router.post('/', async (req, res, next) => {
     const repo = mongoConnection.getRepository("Users")
 
     const user = {}
-    user.name = req.body.name
-    user.address = req.body.address
-    user.role = req.body.role
+    user.name = String(req.body.name || '')
+    user.address = String(req.body.address || '')
+    // role is never taken from user input to avoid privilege escalation
+    user.role = 'user'
 
     const savedRecord = await repo.save(user)
     console.log("Post has been saved: ", savedRecord)
@@ -39,7 +36,6 @@ router.post('/', async (req, res, next) => {
 
   } catch (err) {
     console.error(err)
-    console.log({}.where)
     next();
   }
 })

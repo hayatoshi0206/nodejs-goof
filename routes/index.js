@@ -8,7 +8,8 @@ var ms = require('ms');
 var streamBuffers = require('stream-buffers');
 var readline = require('readline');
 var moment = require('moment');
-var exec = require('child_process').exec;
+var execFile = require('child_process').execFile;
+var path = require('path');
 var validator = require('validator');
 
 // zip-slip
@@ -35,13 +36,14 @@ exports.index = function (req, res, next) {
 };
 
 exports.loginHandler = function (req, res, next) {
-  if (validator.isEmail(req.body.username)) {
-    User.find({ username: req.body.username, password: req.body.password }, function (err, users) {
+  const username = typeof req.body.username === 'string' ? req.body.username : ''
+  const password = typeof req.body.password === 'string' ? req.body.password : ''
+
+  if (validator.isEmail(username)) {
+    User.find({ username: { $eq: username }, password: { $eq: password } }, function (err, users) {
+      if (err) return next(err)
       if (users.length > 0) {
-        const redirectPage = req.body.redirectPage
-        const session = req.session
-        const username = req.body.username
-        return adminLoginSuccess(redirectPage, session, username, res)
+        return adminLoginSuccess(req.body.redirectPage, req.session, username, res)
       } else {
         return res.status(401).send()
       }
@@ -51,24 +53,28 @@ exports.loginHandler = function (req, res, next) {
   }
 };
 
+// Only same-origin, non-protocol-relative paths are accepted as redirect targets
+function safeRedirectPath(redirectPage) {
+  if (typeof redirectPage !== 'string') return null
+  if (!redirectPage.startsWith('/') || redirectPage.startsWith('//')) return null
+  return redirectPage
+}
+
 function adminLoginSuccess(redirectPage, session, username, res) {
   session.loggedIn = 1
 
   // Log the login action for audit
   console.log(`User logged in: ${username}`)
 
-  if (redirectPage) {
-      return res.redirect(redirectPage)
-  } else {
-      return res.redirect('/admin')
-  }
+  const target = safeRedirectPath(redirectPage)
+  return res.redirect(target || '/admin')
 }
 
 exports.login = function (req, res, next) {
   return res.render('admin', {
     title: 'Admin Access',
     granted: false,
-    redirectPage: req.query.redirectPage
+    redirectPage: safeRedirectPath(req.query.redirectPage) || ''
   });
 };
 
@@ -158,12 +164,15 @@ exports.create = function (req, res, next) {
     var url = item.match(imgRegex)[1];
     console.log('found img: ' + url);
 
-    exec('identify ' + url, function (err, stdout, stderr) {
-      console.log(err);
-      if (err !== null) {
-        console.log('Error (' + err + '):' + stderr);
-      }
-    });
+    if (validator.isURL(url, { protocols: ['http', 'https'], require_protocol: true })) {
+      execFile('identify', [url], function (err, stdout, stderr) {
+        if (err !== null) {
+          console.log('Error (' + err + '):' + stderr);
+        }
+      });
+    } else {
+      console.log('ignoring non-http(s) image url');
+    }
 
   } else {
     item = parse(item);
@@ -254,6 +263,16 @@ exports.import = function (req, res, next) {
   if (importedFileType["mime"] === zipFileExt["mime"]) {
     var zip = AdmZip(importFile.data);
     var extracted_path = "/tmp/extracted_files";
+
+    // reject archives whose entries would be written outside the target directory
+    var unsafeEntry = zip.getEntries().some(function (entry) {
+      var target = path.resolve(extracted_path, entry.entryName);
+      return target !== extracted_path && !target.startsWith(extracted_path + path.sep);
+    });
+    if (unsafeEntry) {
+      return res.status(400).send('Archive contains illegal file paths');
+    }
+
     zip.extractAllTo(extracted_path, true);
     data = "No backup.txt file found";
     fs.readFile('backup.txt', 'ascii', function (err, data) {
@@ -295,13 +314,15 @@ exports.import = function (req, res, next) {
   res.redirect('/');
 };
 
+var ALLOWED_DEVICES = ['Desktop', 'Mobile'];
+
 exports.about_new = function (req, res, next) {
-  console.log(JSON.stringify(req.query));
+  var device = ALLOWED_DEVICES.indexOf(req.query.device) !== -1 ? req.query.device : 'Mobile';
   return res.render("about_new.dust",
     {
       title: 'Patch TODO List',
       subhead: 'Vulnerabilities at their best',
-      device: req.query.device
+      device: device
     });
 };
 
@@ -319,6 +340,14 @@ const users = [
 
 let messages = [];
 let lastId = 1;
+
+const FORBIDDEN_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+function hasUnsafeKeys(value) {
+  if (value === null || typeof value !== 'object') return false;
+  return Object.keys(value).some((key) =>
+    FORBIDDEN_KEYS.indexOf(key) !== -1 || hasUnsafeKeys(value[key]));
+}
 
 function findUser(auth) {
   return users.find((u) =>
@@ -343,6 +372,11 @@ exports.chat = {
       // Default message icon. Cen be overwritten by user.
       icon: '👋',
     };
+
+    if (hasUnsafeKeys(req.body.message)) {
+      res.status(400).send({ ok: false, error: 'Invalid message' });
+      return;
+    }
 
     _.merge(message, req.body.message, {
       id: lastId++,

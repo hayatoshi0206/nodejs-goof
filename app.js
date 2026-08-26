@@ -6,7 +6,6 @@
 require('./mongoose-db');
 require('./typeorm-db')
 
-var st = require('st');
 var crypto = require('crypto');
 var express = require('express');
 var http = require('http');
@@ -40,9 +39,16 @@ app.set('view engine', 'ejs');
 app.use(logger('dev'));
 app.use(methodOverride());
 app.use(session({
-  secret: 'keyboard cat',
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   name: 'connect.sid',
-  cookie: { path: '/' }
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    path: '/',
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: app.get('env') === 'production'
+  }
 }))
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -66,10 +72,10 @@ app.get('/about_new', routes.about_new);
 app.get('/chat', routes.chat.get);
 app.put('/chat', routes.chat.add);
 app.delete('/chat', routes.chat.delete);
-app.use('/users', routesUsers)
+app.use('/users', routes.isLoggedIn, routesUsers)
 
 // Static
-app.use(st({ path: './public', url: '/public' }));
+app.use('/public', express.static(path.join(__dirname, 'public')));
 
 // Add the option to output (sanitized!) markdown
 marked.setOptions({ sanitize: true });
@@ -79,9 +85,6 @@ app.locals.marked = marked;
 if (app.get('env') == 'development') {
   app.use(errorHandler());
 }
-
-var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
-console.log('token: ' + token);
 
 http.createServer(app).listen(app.get('port'), function () {
   console.log('Express server listening on port ' + app.get('port'));
