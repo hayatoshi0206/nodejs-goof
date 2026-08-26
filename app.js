@@ -80,9 +80,32 @@ if (app.get('env') == 'development') {
   app.use(errorHandler());
 }
 
+// Centralized error handling: log the failure and respond with a 500 instead of
+// leaving the request hanging.
+app.use(function (err, req, res, next) {
+  console.error(err && err.stack ? err.stack : err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(err.status || 500).send('Internal Server Error');
+});
+
 var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
 console.log('token: ' + token);
 
-http.createServer(app).listen(app.get('port'), function () {
+process.on('unhandledRejection', function (reason) {
+  console.error('Unhandled promise rejection:', reason);
+});
+
+var server = http.createServer(app);
+
+server.on('error', function (err) {
+  console.error('HTTP server error:', err);
+  process.exit(1);
+});
+
+server.listen(app.get('port'), function () {
   console.log('Express server listening on port ' + app.get('port'));
 });
