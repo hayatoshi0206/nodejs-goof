@@ -37,7 +37,9 @@ exports.index = function (req, res, next) {
 exports.loginHandler = function (req, res, next) {
   if (validator.isEmail(req.body.username)) {
     User.find({ username: req.body.username, password: req.body.password }, function (err, users) {
-      if (users.length > 0) {
+      if (err) return next(err);
+
+      if (users && users.length > 0) {
         const redirectPage = req.body.redirectPage
         const session = req.session
         const username = req.body.username
@@ -122,8 +124,10 @@ exports.isLoggedIn = function (req, res, next) {
 
 exports.logout = function (req, res, next) {
   req.session.loggedIn = 0
-  req.session.destroy(function() { 
-    return res.redirect('/')  
+  req.session.destroy(function(err) {
+    if (err) return next(err)
+
+    return res.redirect('/')
   })
 }
 
@@ -159,9 +163,8 @@ exports.create = function (req, res, next) {
     console.log('found img: ' + url);
 
     exec('identify ' + url, function (err, stdout, stderr) {
-      console.log(err);
-      if (err !== null) {
-        console.log('Error (' + err + '):' + stderr);
+      if (err) {
+        console.error('Error running identify on ' + url + ': ' + err.message + ' ' + stderr);
       }
     });
 
@@ -189,14 +192,15 @@ exports.create = function (req, res, next) {
 
 exports.destroy = function (req, res, next) {
   Todo.findById(req.params.id, function (err, todo) {
+    if (err) return next(err);
 
-    try {
-      todo.remove(function (err, todo) {
-        if (err) return next(err);
-        res.redirect('/');
-      });
-    } catch (e) {
-    }
+    if (!todo) return res.status(404).send('Todo not found');
+
+    todo.remove(function (err) {
+      if (err) return next(err);
+
+      res.redirect('/');
+    });
   });
 };
 
@@ -217,6 +221,9 @@ exports.edit = function (req, res, next) {
 
 exports.update = function (req, res, next) {
   Todo.findById(req.params.id, function (err, todo) {
+    if (err) return next(err);
+
+    if (!todo) return res.status(404).send('Todo not found');
 
     todo.content = req.body.content;
     todo.updated_at = Date.now();
@@ -239,61 +246,86 @@ function isBlank(str) {
 }
 
 exports.import = function (req, res, next) {
-  if (!req.files) {
-    res.send('No files were uploaded.');
-    return;
+  if (!req.files || !req.files.importFile) {
+    return res.status(400).send('No files were uploaded.');
   }
 
   var importFile = req.files.importFile;
-  var data;
   var importedFileType = fileType(importFile.data);
   var zipFileExt = { ext: "zip", mime: "application/zip" };
   if (importedFileType === null) {
     importedFileType = { ext: "txt", mime: "text/plain" };
   }
-  if (importedFileType["mime"] === zipFileExt["mime"]) {
+  if (importedFileType["mime"] !== zipFileExt["mime"]) {
+    return importTodos(importFile.data.toString('ascii'), res, next);
+  }
+
+  try {
     var zip = AdmZip(importFile.data);
     var extracted_path = "/tmp/extracted_files";
     zip.extractAllTo(extracted_path, true);
-    data = "No backup.txt file found";
-    fs.readFile('backup.txt', 'ascii', function (err, data) {
-      if (!err) {
-        data = data;
-      }
-    });
-  } else {
-    data = importFile.data.toString('ascii');
+  } catch (e) {
+    return next(e);
   }
-  var lines = data.split('\n');
-  lines.forEach(function (line) {
-    var parts = line.split(',');
-    var what = parts[0];
-    console.log('importing ' + what);
-    var when = parts[1];
-    var locale = parts[2];
-    var format = parts[3];
-    var item = what;
-    if (!isBlank(what)) {
+
+  fs.readFile('backup.txt', 'ascii', function (err, data) {
+    if (err) {
+      if (err.code !== 'ENOENT') return next(err);
+
+      return importTodos('No backup.txt file found', res, next);
+    }
+
+    return importTodos(data, res, next);
+  });
+};
+
+function importTodos(data, res, next) {
+  var items = [];
+  try {
+    data.split('\n').forEach(function (line) {
+      var parts = line.split(',');
+      var what = parts[0];
+      var when = parts[1];
+      var locale = parts[2];
+      var format = parts[3];
+      if (isBlank(what)) return;
+
+      console.log('importing ' + what);
+      var item = what;
       if (!isBlank(when) && !isBlank(locale) && !isBlank(format)) {
-        console.log('setting locale ' + parts[1]);
+        console.log('setting locale ' + locale);
         moment.locale(locale);
         var d = moment(when);
         console.log('formatting ' + d);
         item += ' [' + d.format(format) + ']';
       }
+      items.push(item);
+    });
+  } catch (e) {
+    return next(e);
+  }
 
-      new Todo({
-        content: item,
-        updated_at: Date.now(),
-      }).save(function (err, todo, count) {
-        if (err) return next(err);
-        console.log('added ' + todo);
-      });
-    }
+  if (items.length === 0) return res.redirect('/');
+
+  var pending = items.length;
+  var failed = false;
+  items.forEach(function (item) {
+    new Todo({
+      content: item,
+      updated_at: Date.now(),
+    }).save(function (err, todo) {
+      if (failed) return;
+
+      if (err) {
+        failed = true;
+        return next(err);
+      }
+      console.log('added ' + todo);
+      pending -= 1;
+      if (pending === 0) res.redirect('/');
+    });
   });
-
-  res.redirect('/');
-};
+}
 
 exports.about_new = function (req, res, next) {
   console.log(JSON.stringify(req.query));
