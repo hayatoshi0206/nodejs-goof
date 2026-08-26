@@ -5,9 +5,11 @@ services:
     container_name: goof
     environment:
       - DOCKER=1
+      - MYSQL_HOST=goof-mysql
+      - MYSQL_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - SESSION_SECRET=${SESSION_SECRET}
     ports:
       - "3001:3001"
-      - "9229:9229"
     links:
       - goof-mongo
     depends_on:
@@ -16,12 +18,12 @@ services:
     container_name: goof-mongo
     image: mongo:3
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
   good-mysql:
     container_name: goof-mysql
     image: mysql:5
     environment:
-      MYSQL_ROOT_PASSWORD: root
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       MYSQL_DATABASE: acme
     ports:
-      - "3306:3306"
+      - "127.0.0.1:3306:3306"
