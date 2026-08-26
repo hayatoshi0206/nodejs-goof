@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "NODE_OPTIONS=--openssl-legacy-provider nodemon ./app.js",
     "start": "NODE_OPTIONS=--openssl-legacy-provider node app.js",
-    "build": "browserify -r jquery > public/js/bundle.js",
+    "build": "npx --yes browserify -r jquery > public/js/bundle.js",
     "cleanup": "mongo express-todo --eval 'db.todos.remove({});'",
     "test": "npx --yes snyk test"
   },
@@ -47,11 +47,9 @@
   "overrides": {
     "dustjs-helpers": {
       "dustjs-linkedin": "^3.0.1"
-    },
-    "elliptic": "^6.6.1"
+    }
   },
   "devDependencies": {
-    "browserify": "^17.0.1",
     "nodemon": "^3.1.10"
   },
   "license": "Apache-2.0"
