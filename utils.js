@@ -17,6 +17,10 @@ module.exports = {
     return str;
   },
 
+  accessDenied : function ( res ){
+    res.status( 403 ).send({ ok: false, error: 'Access denied' });
+  },
+
   forbidden : function ( res ){
     var body       = 'Forbidden';
     res.statusCode = 403;

@@ -1,14 +1,13 @@
 
 var express = require('express')
-var typeorm = require("typeorm");
+var usersRepository = require('../service/usersRepository');
 
 var router = express.Router()
 module.exports = router
 
 router.get('/', async (req, res, next) => {
 
-  const mongoConnection = typeorm.getConnection('mysql')
-  const repo = mongoConnection.getRepository("Users")
+  const repo = usersRepository.getUsersRepository()
 
   // hard-coded getting account id of 1
   // as a rpelacement to getting this from the session and such
@@ -25,8 +24,7 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const mongoConnection = typeorm.getConnection('mysql')
-    const repo = mongoConnection.getRepository("Users")
+    const repo = usersRepository.getUsersRepository()
 
     const user = {}
     user.name = req.body.name

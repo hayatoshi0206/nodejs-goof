@@ -1,6 +1,6 @@
 var utils = require('../utils');
 var mongoose = require('mongoose');
-var Todo = mongoose.model('Todo');
+var todoService = require('../service/todoService');
 var User = mongoose.model('User');
 // TODO:
 var hms = require('humanize-ms');
@@ -20,18 +20,15 @@ var fs = require('fs');
 var _ = require('lodash');
 
 exports.index = function (req, res, next) {
-  Todo.
-    find({}).
-    sort('-updated_at').
-    exec(function (err, todos) {
-      if (err) return next(err);
+  todoService.findAllTodos(function (err, todos) {
+    if (err) return next(err);
 
-      res.render('index', {
-        title: 'Patch TODO List',
-        subhead: 'Vulnerabilities at their best',
-        todos: todos,
-      });
+    res.render('index', {
+      title: 'Patch TODO List',
+      subhead: 'Vulnerabilities at their best',
+      todos: todos,
     });
+  });
 };
 
 exports.loginHandler = function (req, res, next) {
@@ -169,10 +166,7 @@ exports.create = function (req, res, next) {
     item = parse(item);
   }
 
-  new Todo({
-    content: item,
-    updated_at: Date.now(),
-  }).save(function (err, todo, count) {
+  todoService.createTodo(item, function (err, todo, count) {
     if (err) return next(err);
 
     /*
@@ -188,7 +182,7 @@ exports.create = function (req, res, next) {
 };
 
 exports.destroy = function (req, res, next) {
-  Todo.findById(req.params.id, function (err, todo) {
+  todoService.findTodoById(req.params.id, function (err, todo) {
 
     try {
       todo.remove(function (err, todo) {
@@ -201,22 +195,19 @@ exports.destroy = function (req, res, next) {
 };
 
 exports.edit = function (req, res, next) {
-  Todo.
-    find({}).
-    sort('-updated_at').
-    exec(function (err, todos) {
-      if (err) return next(err);
+  todoService.findAllTodos(function (err, todos) {
+    if (err) return next(err);
 
-      res.render('edit', {
-        title: 'TODO',
-        todos: todos,
-        current: req.params.id
-      });
+    res.render('edit', {
+      title: 'TODO',
+      todos: todos,
+      current: req.params.id
     });
+  });
 };
 
 exports.update = function (req, res, next) {
-  Todo.findById(req.params.id, function (err, todo) {
+  todoService.findTodoById(req.params.id, function (err, todo) {
 
     todo.content = req.body.content;
     todo.updated_at = Date.now();
@@ -282,10 +273,7 @@ exports.import = function (req, res, next) {
         item += ' [' + d.format(format) + ']';
       }
 
-      new Todo({
-        content: item,
-        updated_at: Date.now(),
-      }).save(function (err, todo, count) {
+      todoService.createTodo(item, function (err, todo, count) {
         if (err) return next(err);
         console.log('added ' + todo);
       });
@@ -335,7 +323,7 @@ exports.chat = {
     const user = findUser(req.body.auth || {});
 
     if (!user) {
-      res.status(403).send({ ok: false, error: 'Access denied' });
+      utils.accessDenied(res);
       return;
     }
 
@@ -357,7 +345,7 @@ exports.chat = {
     const user = findUser(req.body.auth || {});
 
     if (!user || !user.canDelete) {
-      res.status(403).send({ ok: false, error: 'Access denied' });
+      utils.accessDenied(res);
       return;
     }
 
