@@ -3,27 +3,25 @@ var EntitySchema = typeorm.EntitySchema;
 
 const Users = require("./entity/Users")
 
-typeorm.createConnection({
+const dataSource = new typeorm.DataSource({
   name: "mysql",
   type: "mysql",
-  host: "localhost",
-  port: 3306,
-  username: "root",
-  password: "root",
-  database: "acme",
+  host: process.env.MYSQL_HOST || "localhost",
+  port: Number(process.env.MYSQL_PORT) || 3306,
+  username: process.env.MYSQL_USER || "root",
+  password: process.env.MYSQL_PASSWORD || "",
+  database: process.env.MYSQL_DATABASE || "acme",
   synchronize: true,
   "logging": true,
   entities: [
     new EntitySchema(Users)
   ]
-}).then(() => {
+})
 
-  const dbConnection = typeorm.getConnection('mysql')
+module.exports = dataSource
 
-  const repo = dbConnection.getRepository("Users")
-  return repo
-}).then((repo) => {
-
+dataSource.initialize().then(() => {
+  const repo = dataSource.getRepository("Users")
 
   console.log('Seeding 2 users to MySQL users table: Liran (role: user), Simon (role: admin')
   const inserts = [

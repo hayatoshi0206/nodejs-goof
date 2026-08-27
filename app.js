@@ -11,17 +11,17 @@ var crypto = require('crypto');
 var express = require('express');
 var http = require('http');
 var path = require('path');
-var ejsEngine = require('ejs-locals');
+var expressLayouts = require('express-ejs-layouts');
 var bodyParser = require('body-parser');
 var session = require('express-session')
 var methodOverride = require('method-override');
 var logger = require('morgan');
 var errorHandler = require('errorhandler');
 var optional = require('optional');
-var marked = require('marked');
+var marked = require('marked').marked;
+var sanitizeHtml = require('sanitize-html');
 var fileUpload = require('express-fileupload');
 var dust = require('dustjs-linkedin');
-var dustHelpers = require('dustjs-helpers');
 var cons = require('consolidate');
 const hbs = require('hbs')
 
@@ -31,18 +31,19 @@ var routesUsers = require('./routes/users.js')
 
 // all environments
 app.set('port', process.env.PORT || 3001);
-app.engine('ejs', ejsEngine);
 app.engine('dust', cons.dust);
 app.engine('hbs', hbs.__express);
-cons.dust.helpers = dustHelpers;
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
+app.set('layout', 'layout');
 app.use(logger('dev'));
 app.use(methodOverride());
 app.use(session({
-  secret: 'keyboard cat',
+  secret: process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex'),
   name: 'connect.sid',
-  cookie: { path: '/' }
+  resave: false,
+  saveUninitialized: false,
+  cookie: { path: '/', httpOnly: true, sameSite: 'lax', secure: process.env.SECURE_COOKIES === '1' }
 }))
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
@@ -50,16 +51,19 @@ app.use(fileUpload());
 
 // Routes
 app.use(routes.current_user);
-app.get('/', routes.index);
-app.get('/login', routes.login);
+// express-ejs-layouts is mounted per EJS route only: it shares the `layout`
+// render option with hbs, so mounting it globally would force the hbs views to
+// opt out of their own layout.
+app.get('/', expressLayouts, routes.index);
+app.get('/login', expressLayouts, routes.login);
 app.post('/login', routes.loginHandler);
-app.get('/admin', routes.isLoggedIn, routes.admin);
+app.get('/admin', routes.isLoggedIn, expressLayouts, routes.admin);
 app.get('/account_details', routes.isLoggedIn, routes.get_account_details);
 app.post('/account_details', routes.isLoggedIn, routes.save_account_details);
 app.get('/logout', routes.logout);
 app.post('/create', routes.create);
 app.get('/destroy/:id', routes.destroy);
-app.get('/edit/:id', routes.edit);
+app.get('/edit/:id', expressLayouts, routes.edit);
 app.post('/update/:id', routes.update);
 app.post('/import', routes.import);
 app.get('/about_new', routes.about_new);
@@ -71,9 +75,17 @@ app.use('/users', routesUsers)
 // Static
 app.use(st({ path: './public', url: '/public' }));
 
-// Add the option to output (sanitized!) markdown
-marked.setOptions({ sanitize: true });
-app.locals.marked = marked;
+// Render markdown, then strip anything script-ish from the resulting HTML
+// (marked itself no longer sanitizes).
+app.locals.marked = function (input) {
+  return sanitizeHtml(marked.parse(String(input)), {
+    allowedTags: sanitizeHtml.defaults.allowedTags.concat(['img']),
+    allowedAttributes: Object.assign({}, sanitizeHtml.defaults.allowedAttributes, {
+      img: ['src', 'alt', 'title']
+    }),
+    allowedSchemes: ['http', 'https']
+  });
+};
 
 // development only
 if (app.get('env') == 'development') {
@@ -92,8 +104,10 @@ app.use(function (err, req, res, next) {
   res.status(err.status || 500).send('Internal Server Error');
 });
 
-var token = 'SECRET_TOKEN_f8ed84e8f41e4146403dd4a6bbcea5e418d23a9';
-console.log('token: ' + token);
+var token = process.env.SECRET_TOKEN;
+if (!token) {
+  console.warn('SECRET_TOKEN is not set');
+}
 
 process.on('unhandledRejection', function (reason) {
   console.error('Unhandled promise rejection:', reason);

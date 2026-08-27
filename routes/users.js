@@ -1,22 +1,23 @@
 
 var express = require('express')
-var typeorm = require("typeorm");
+var dataSource = require("../typeorm-db");
 
 var router = express.Router()
 module.exports = router
 
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.length > 0
+}
+
 router.get('/', async (req, res, next) => {
   try {
-    const mongoConnection = typeorm.getConnection('mysql')
-    const repo = mongoConnection.getRepository("Users")
+    const repo = dataSource.getRepository("Users")
 
     // hard-coded getting account id of 1
     // as a rpelacement to getting this from the session and such
     // (just imagine that we implemented auth, etc)
-    const results = await repo.find({ id: 1 })
+    const results = await repo.find({ where: { id: 1 } })
 
-    // Log Object's where property for debug reasons:
-    console.log('The Object.where property is set to: ', {}.where)
     console.log(results)
 
     return res.json(results)
@@ -27,20 +28,26 @@ router.get('/', async (req, res, next) => {
 
 router.post('/', async (req, res, next) => {
   try {
-    const mongoConnection = typeorm.getConnection('mysql')
-    const repo = mongoConnection.getRepository("Users")
+    const repo = dataSource.getRepository("Users")
 
-    const user = {}
-    user.name = req.body.name
-    user.address = req.body.address
-    user.role = req.body.role
+    // Only accept scalar strings: an object here (e.g. an address carrying a
+    // "__proto__" key) reaches TypeORM's internal merge and pollutes
+    // Object.prototype, which then leaks into every subsequent `where` clause.
+    if (!isNonEmptyString(req.body.name) || !isNonEmptyString(req.body.address) || !isNonEmptyString(req.body.role)) {
+      return res.status(400).json({ error: 'name, address and role must be strings' })
+    }
+
+    const user = {
+      name: req.body.name,
+      address: req.body.address,
+      role: req.body.role
+    }
 
     const savedRecord = await repo.save(user)
     console.log("Post has been saved: ", savedRecord)
     return res.sendStatus(200)
 
   } catch (err) {
-    console.log({}.where)
     return next(err)
   }
 })
