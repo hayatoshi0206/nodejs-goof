@@ -22,7 +22,6 @@ var marked = require('marked').marked;
 var sanitizeHtml = require('sanitize-html');
 var fileUpload = require('express-fileupload');
 var dust = require('dustjs-linkedin');
-var dustHelpers = require('dustjs-helpers');
 var cons = require('consolidate');
 const hbs = require('hbs')
 
@@ -34,7 +33,6 @@ var routesUsers = require('./routes/users.js')
 app.set('port', process.env.PORT || 3001);
 app.engine('dust', cons.dust);
 app.engine('hbs', hbs.__express);
-cons.dust.helpers = dustHelpers;
 app.set('views', path.join(__dirname, 'views'));
 app.set('view engine', 'ejs');
 app.set('layout', 'layout');

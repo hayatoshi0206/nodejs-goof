@@ -316,12 +316,17 @@ function importTodos(data, res, next) {
 
 exports.about_new = function (req, res, next) {
   console.log(JSON.stringify(req.query));
+  var device = typeof req.query.device === 'string' ? req.query.device : ''
+
+  // The comparison happens here rather than in the template: the dust
+  // `{@if cond="..."}` helper evaluates its condition, so interpolating the
+  // query string into it is a template-injection sink.
   return res.render("about_new.dust",
     {
-      layout: false,
       title: 'Patch TODO List',
       subhead: 'Vulnerabilities at their best',
-      device: req.query.device
+      device: device,
+      isDesktop: device === 'Desktop'
     });
 };
 
